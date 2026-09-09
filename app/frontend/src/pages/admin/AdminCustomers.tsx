@@ -35,6 +35,11 @@ interface Customer {
   customer_phone: string;
   phone: string;
   phone_verified: boolean;
+  customer_email?: string | null;
+  email?: string | null;
+  email_verified?: boolean;
+  auth_provider?: 'phone_pin' | 'google';
+  google_verified?: boolean;
   is_locked: boolean;
   locked_until?: string | null;
   failed_login_attempts: number;
@@ -518,7 +523,7 @@ export default function AdminCustomers() {
         <div className="relative mb-6">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <Input
-            placeholder="Search by name or phone..."
+            placeholder="Search by name, phone or email..."
             value={search}
             onChange={event =>
               setSearch(event.target.value)
@@ -609,6 +614,31 @@ export default function AdminCustomers() {
                     <p className="text-gray-400 text-sm mt-1">
                       {customer.customer_phone}
                     </p>
+
+                    {customer.customer_email && (
+                      <p className="text-gray-400 text-sm mt-1 break-all">
+                        {customer.customer_email}
+                      </p>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {customer.google_verified && (
+                        <Badge
+                          variant="outline"
+                          className="text-green-400 border-green-600/40 text-[10px]"
+                        >
+                          Google Verified
+                        </Badge>
+                      )}
+                      <Badge
+                        variant="outline"
+                        className="text-gray-400 border-gray-700 text-[10px]"
+                      >
+                        {customer.auth_provider === 'google'
+                          ? 'Google Login'
+                          : 'Phone + PIN'}
+                      </Badge>
+                    </div>
 
                     <p className="text-gray-600 text-xs mt-1">
                       Registered:{' '}
