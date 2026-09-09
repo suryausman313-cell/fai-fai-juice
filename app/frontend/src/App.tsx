@@ -16,6 +16,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
 } from 'react-router-dom';
 
 import { I18nProvider } from '@/lib/i18n';
@@ -207,15 +208,19 @@ function ProtectedCustomerRoute({
     isLoggedIn,
     loading,
   } = useCustomerAuth();
+  const location = useLocation();
 
   if (loading) {
     return <PageLoader />;
   }
 
   if (!isLoggedIn) {
+    const requestedPath = `${location.pathname}${location.search}${location.hash}`;
+    const next = encodeURIComponent(requestedPath);
+
     return (
       <Navigate
-        to="/account"
+        to={`/account?next=${next}`}
         replace
       />
     );
@@ -237,14 +242,8 @@ const AppRoutes = () => (
       <Route path="/menu" element={<Menu />} />
       <Route path="/support" element={<Support />} />
 
-      <Route
-        path="/cart"
-        element={
-          <ProtectedCustomerRoute>
-            <Cart />
-          </ProtectedCustomerRoute>
-        }
-      />
+      {/* Cart is browsing/pre-checkout; login is required only when checkout starts. */}
+      <Route path="/cart" element={<Cart />} />
 
       <Route
         path="/checkout"
