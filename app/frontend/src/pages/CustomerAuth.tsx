@@ -93,6 +93,8 @@ export default function CustomerAuth() {
   const [mode, setMode] = useState<ScreenMode>('choice');
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<1 | 2>(1);
 
   const [loginPhone, setLoginPhone] = useState(rememberedPhone);
   const [loginPin, setLoginPin] = useState('');
@@ -113,7 +115,16 @@ export default function CustomerAuth() {
   const googleClientId = String(import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
   const isIOSNative =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
-  const showGoogleSignIn = Boolean(googleClientId) && !isIOSNative;
+
+  const hasNativeGoogleBridge = () =>
+    typeof (window as any).FaiFaiNative?.startGoogleSignIn === 'function';
+
+  const [nativeGoogleAvailable, setNativeGoogleAvailable] = useState(
+    () => hasNativeGoogleBridge()
+  );
+
+  const showGoogleSignIn =
+    !isIOSNative && (nativeGoogleAvailable || Boolean(googleClientId));
 
   const [googlePending, setGooglePending] = useState<{
     token: string;
@@ -125,12 +136,78 @@ export default function CustomerAuth() {
   );
   const [googlePin, setGooglePin] = useState('');
 
+  async function finishGoogleCredential(credential: string) {
+    const cleanCredential = String(credential || '').trim();
+    if (!cleanCredential) {
+      toast.error('Google sign-in was not completed');
+      return;
+    }
+
+    try {
+      const pending = await googleLoginCustomer(cleanCredential);
+
+      if (pending) {
+        setGooglePending({
+          token: pending.google_signup_token,
+          name: pending.google_profile.name,
+          email: pending.google_profile.email,
+        });
+        return;
+      }
+
+      localStorage.setItem(LAST_AUTH_METHOD_KEY, 'google');
+      toast.success('Google sign-in successful');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Google sign-in failed'));
+    }
+  }
+
+  useEffect(() => {
+    const handleNativeReady = () => {
+      setNativeGoogleAvailable(hasNativeGoogleBridge());
+    };
+
+    const handleNativeGoogle = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        credential?: string;
+        error?: string;
+      }>;
+
+      const error = String(customEvent.detail?.error || '').trim();
+      if (error) {
+        toast.error(error);
+        return;
+      }
+
+      void finishGoogleCredential(
+        String(customEvent.detail?.credential || '')
+      );
+    };
+
+    window.addEventListener('fai-fai-native-ready', handleNativeReady);
+    window.addEventListener(
+      'fai-fai-native-google-signin',
+      handleNativeGoogle as EventListener
+    );
+
+    handleNativeReady();
+
+    return () => {
+      window.removeEventListener('fai-fai-native-ready', handleNativeReady);
+      window.removeEventListener(
+        'fai-fai-native-google-signin',
+        handleNativeGoogle as EventListener
+      );
+    };
+  }, [googleLoginCustomer]);
+
   useEffect(() => {
     if (
       isLoggedIn ||
       mode !== 'choice' ||
       googlePending ||
-      !showGoogleSignIn
+      !showGoogleSignIn ||
+      nativeGoogleAvailable
     ) {
       return;
     }
@@ -145,30 +222,10 @@ export default function CustomerAuth() {
 
       google.accounts.id.initialize({
         client_id: googleClientId,
-        callback: async (response: { credential?: string }) => {
-          const credential = String(response?.credential || '').trim();
-          if (!credential) {
-            toast.error('Google sign-in was not completed');
-            return;
-          }
-
-          try {
-            const pending = await googleLoginCustomer(credential);
-
-            if (pending) {
-              setGooglePending({
-                token: pending.google_signup_token,
-                name: pending.google_profile.name,
-                email: pending.google_profile.email,
-              });
-              return;
-            }
-
-            localStorage.setItem(LAST_AUTH_METHOD_KEY, 'google');
-            toast.success('Google sign-in successful');
-          } catch (error) {
-            toast.error(getErrorMessage(error, 'Google sign-in failed'));
-          }
+        callback: (response: { credential?: string }) => {
+          void finishGoogleCredential(
+            String(response?.credential || '')
+          );
         },
       });
 
@@ -205,7 +262,7 @@ export default function CustomerAuth() {
     return () => {
       cancelled = true;
     };
-  }, [googleClientId, googleLoginCustomer, googlePending, isLoggedIn, mode, showGoogleSignIn]);
+  }, [googleClientId, googleLoginCustomer, googlePending, isLoggedIn, mode, nativeGoogleAvailable, showGoogleSignIn]);
 
   function goBack(): void {
     if (googlePending) {
@@ -360,16 +417,6 @@ export default function CustomerAuth() {
   async function handleDeleteAccount() {
     if (deleting) return;
 
-    const confirmed = window.confirm(
-      'Permanently delete your Fai Fai account? This cannot be undone.'
-    );
-    if (!confirmed) return;
-
-    const confirmedAgain = window.confirm(
-      'Are you sure? Your login/profile will be deleted and past orders will be anonymized.'
-    );
-    if (!confirmedAgain) return;
-
     setDeleting(true);
     try {
       await customerAuthApi.deleteAccount();
@@ -383,6 +430,8 @@ export default function CustomerAuth() {
       setSignupPhone('+971');
       setMode('choice');
       setGooglePending(null);
+      setDeleteConfirmOpen(false);
+      setDeleteConfirmStep(1);
       toast.success('Account deleted');
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not delete account.'));
@@ -502,7 +551,10 @@ export default function CustomerAuth() {
 
             <button
               type="button"
-              onClick={() => void handleDeleteAccount()}
+              onClick={() => {
+                setDeleteConfirmStep(1);
+                setDeleteConfirmOpen(true);
+              }}
               disabled={deleting}
               className="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-950 bg-black px-5 py-4 font-semibold text-red-500 transition hover:bg-red-950/30 disabled:opacity-50"
             >
@@ -514,6 +566,62 @@ export default function CustomerAuth() {
           <p className="mt-6 text-center text-xs text-gray-700">
             Your account details are kept with your Fai Fai customer account.
           </p>
+
+          {deleteConfirmOpen ? (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 px-4">
+              <div className="w-full max-w-sm rounded-3xl border border-slate-800 bg-slate-950 p-6 shadow-2xl">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-950/70">
+                  <Trash2 className="h-6 w-6 text-red-500" />
+                </div>
+
+                <h2 className="text-xl font-black text-white">
+                  {deleteConfirmStep === 1
+                    ? 'Delete your account?'
+                    : 'Final confirmation'}
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-gray-400">
+                  {deleteConfirmStep === 1
+                    ? 'Your Fai Fai login and profile will be permanently deleted.'
+                    : 'This cannot be undone. Past order records will be kept only as anonymized business records.'}
+                </p>
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={deleting}
+                    onClick={() => {
+                      setDeleteConfirmOpen(false);
+                      setDeleteConfirmStep(1);
+                    }}
+                    className="border-slate-700 bg-slate-900 text-white hover:bg-slate-800"
+                  >
+                    Cancel
+                  </Button>
+
+                  {deleteConfirmStep === 1 ? (
+                    <Button
+                      type="button"
+                      onClick={() => setDeleteConfirmStep(2)}
+                      className="bg-red-600 text-white hover:bg-red-700"
+                    >
+                      Continue
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      disabled={deleting}
+                      onClick={() => void handleDeleteAccount()}
+                      className="bg-red-600 text-white hover:bg-red-700"
+                    >
+                      {deleting ? 'Deleting…' : 'Delete'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -619,9 +727,26 @@ export default function CustomerAuth() {
             </button>
 
             {showGoogleSignIn ? (
-              <div className="flex min-h-[56px] w-full items-center justify-center overflow-hidden rounded-full bg-white px-2">
-                <div ref={googleButtonRef} className="flex w-full justify-center" />
-              </div>
+              nativeGoogleAvailable ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      (window as any).FaiFaiNative?.startGoogleSignIn?.();
+                    } catch {
+                      toast.error('Google sign-in could not start');
+                    }
+                  }}
+                  className="flex h-14 w-full items-center justify-center gap-3 rounded-full border border-slate-600 bg-white px-5 font-bold text-black transition hover:bg-gray-100"
+                >
+                  <span className="text-lg font-black text-blue-600">G</span>
+                  Continue with Google
+                </button>
+              ) : (
+                <div className="flex min-h-[56px] w-full items-center justify-center overflow-hidden rounded-full bg-white px-2">
+                  <div ref={googleButtonRef} className="flex w-full justify-center" />
+                </div>
+              )
             ) : null}
 
             {rememberedPhone !== '+971' ? (

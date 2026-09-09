@@ -1,10 +1,11 @@
 import axios from 'axios';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, XCircle, ChefHat, Package, RefreshCw, Store, MessageSquare, Bike, Navigation, AlertTriangle, X, ShoppingCart, Bell, BellOff } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, ChefHat, Package, RefreshCw, Store, MessageSquare, Bike, Navigation, AlertTriangle, X, ShoppingCart, Bell, BellOff, EyeOff } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import CustomerLayout from '@/components/CustomerLayout';
 import { client, Order, CartItem } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n';
@@ -420,6 +421,30 @@ interface OrderWithDelivery extends Order {
   delivery_eta_calculated_at?: string | null;
 }
 
+function hiddenPastOrdersKey(): string {
+  const phone = String(
+    localStorage.getItem('vita_customer_phone') ||
+    localStorage.getItem('vita_customer_registered_phone') ||
+    'customer'
+  ).replace(/[^0-9+]/g, '');
+  return `fai_fai_hidden_past_orders:${phone || 'customer'}`;
+}
+
+function readHiddenPastOrders(): Set<number> {
+  try {
+    const raw = localStorage.getItem(hiddenPastOrdersKey());
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 export default function MyOrders() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -428,6 +453,7 @@ export default function MyOrders() {
   const [refreshing, setRefreshing] = useState(false);
   const [reviewedOrders, setReviewedOrders] = useState<Set<number>>(new Set());
   const [cancelDialogOrder, setCancelDialogOrder] = useState<OrderWithDelivery | null>(null);
+  const [hiddenPastOrderIds, setHiddenPastOrderIds] = useState<Set<number>>(() => readHiddenPastOrders());
   const [notificationStatus, setNotificationStatus] = useState<
     'checking' | 'login_required' | 'available' | 'enabling' | 'enabled' | 'blocked' | 'unsupported' | 'error'
   >('checking');
@@ -589,13 +615,64 @@ export default function MyOrders() {
       await client.apiCall.invoke({
         url: `/api/v1/orders/${orderId}/cancel`,
         method: 'POST',
-        data: { reason, session_id: getGuestSessionId() },
+        data: {
+          reason: String(reason || '').trim() || 'Cancelled by customer',
+          session_id: getGuestSessionId(),
+        },
       });
+      toast.success('Order cancelled');
       await loadOrders();
     } catch (e: any) {
-      const msg = e?.data?.detail || 'Failed to cancel order';
-      alert(msg);
+      const msg = e?.data?.detail || e?.message || 'Failed to cancel order';
+      toast.error(String(msg));
     }
+  }
+
+  async function cancelPendingPaymentOrder(orderId: number) {
+    try {
+      const res = await client.apiCall.invoke({
+        url: '/api/v1/ziina/cancel-payment-order',
+        method: 'POST',
+        data: { order_id: orderId },
+      });
+
+      const data = res?.data || {};
+      if (data.success && String(data.status || '').toLowerCase() === 'cancelled') {
+        toast.success('Pending order cancelled');
+        await loadOrders();
+        return;
+      }
+
+      if (data.paid === true || String(data.status || '').toLowerCase() === 'new') {
+        toast.info('Payment was already completed. Order is now active.');
+        await loadOrders();
+        return;
+      }
+
+      toast.error(
+        String(
+          data.message ||
+          'Payment is still active. Retry payment or choose Cash.'
+        )
+      );
+    } catch (e: any) {
+      toast.error(
+        String(e?.data?.detail || e?.message || 'Could not cancel pending order')
+      );
+    }
+  }
+
+  function hidePastOrder(orderId: number) {
+    setHiddenPastOrderIds(current => {
+      const next = new Set(current);
+      next.add(orderId);
+      localStorage.setItem(
+        hiddenPastOrdersKey(),
+        JSON.stringify(Array.from(next))
+      );
+      return next;
+    });
+    toast.success('Order removed from your list');
   }
 
   /** Determine if customer can cancel this order */
@@ -699,7 +776,7 @@ export default function MyOrders() {
   }
 
   const activeOrders = orders.filter(o => isActiveOrder(o));
-  const pastOrders = orders.filter(o => !isActiveOrder(o));
+  const pastOrders = orders.filter(o => !isActiveOrder(o) && !hiddenPastOrderIds.has(o.id));
 
   return (
     <CustomerLayout>
@@ -847,6 +924,15 @@ export default function MyOrders() {
                               >
                                 Choose Cash
                               </Button>
+                              <Button
+                                onClick={() => void cancelPendingPaymentOrder(order.id)}
+                                size="sm"
+                                variant="outline"
+                                className="col-span-2 border-red-600/50 text-red-400 hover:bg-red-600/10 hover:text-red-300 cursor-pointer"
+                              >
+                                <XCircle className="w-4 h-4 mr-2" />
+                                Cancel Pending Order
+                              </Button>
                             </div>
                           </div>
                         ) : (
@@ -977,6 +1063,16 @@ export default function MyOrders() {
                             )
                           )}
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => hidePastOrder(order.id)}
+                          className="mt-3 flex w-full items-center justify-center gap-2 border-t border-gray-800 pt-3 text-xs font-medium text-gray-500 transition hover:text-gray-300"
+                        >
+                          <EyeOff className="h-3.5 w-3.5" />
+                          Remove from list
+                        </button>
+
                         {/* Order Again button for completed orders */}
                         {(order.status === 'completed' || order.delivery_status === 'delivered') && (
                           <div className="mt-3 pt-3 border-t border-gray-800">
