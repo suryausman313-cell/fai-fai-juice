@@ -9,6 +9,19 @@ export interface Customer {
   is_active: boolean;
   created_at: string;
   last_login?: string | null;
+  email?: string | null;
+  customer_email?: string | null;
+  email_verified?: boolean;
+  auth_provider?: 'phone_pin' | 'google';
+}
+
+export interface GoogleLoginPending {
+  needs_phone: true;
+  google_signup_token: string;
+  google_profile: {
+    name: string;
+    email: string;
+  };
 }
 
 interface AuthResponse {
@@ -16,7 +29,10 @@ interface AuthResponse {
   access_token?: string;
   token_type?: string;
   customer: Customer;
+  needs_phone?: false;
 }
+
+type GoogleLoginResponse = AuthResponse | GoogleLoginPending;
 
 const TOKEN_KEY = 'vita_customer_token';
 const CUSTOMER_KEY = 'vita_customer';
@@ -187,7 +203,6 @@ async function iosGet<T>(
   return response.data as T;
 }
 
-
 async function iosDelete<T>(
   path: string,
   token: string
@@ -292,6 +307,72 @@ export const customerAuthApi = {
     }
   },
 
+
+  async googleLogin(credential: string): Promise<Customer | GoogleLoginPending> {
+    try {
+      let data: GoogleLoginResponse;
+
+      if (isIOSNative()) {
+        data = await iosPost<GoogleLoginResponse>(
+          '/api/v1/customer-auth/google-login',
+          { credential }
+        );
+      } else {
+        const response = await api.post<GoogleLoginResponse>(
+          `${getAPIBaseURL()}/api/v1/customer-auth/google-login`,
+          { credential }
+        );
+        data = response.data;
+      }
+
+      if ('needs_phone' in data && data.needs_phone) {
+        return data;
+      }
+
+      saveSession(data as AuthResponse);
+      return (data as AuthResponse).customer;
+    } catch (error) {
+      throw new Error(
+        getAxiosErrorMessage(error, 'Google sign-in failed')
+      );
+    }
+  },
+
+  async completeGoogleLogin(
+    signupToken: string,
+    phone: string,
+    pin: string
+  ): Promise<Customer> {
+    try {
+      let data: AuthResponse;
+      const payload = {
+        signup_token: signupToken,
+        phone,
+        pin,
+      };
+
+      if (isIOSNative()) {
+        data = await iosPost<AuthResponse>(
+          '/api/v1/customer-auth/google-complete',
+          payload
+        );
+      } else {
+        const response = await api.post<AuthResponse>(
+          `${getAPIBaseURL()}/api/v1/customer-auth/google-complete`,
+          payload
+        );
+        data = response.data;
+      }
+
+      saveSession(data);
+      return data.customer;
+    } catch (error) {
+      throw new Error(
+        getAxiosErrorMessage(error, 'Could not finish Google sign-in')
+      );
+    }
+  },
+
   async getCurrentCustomer(): Promise<Customer | null> {
     const token = getToken();
 
@@ -387,8 +468,7 @@ export const customerAuthApi = {
     }
   },
 
-
-  async deleteAccount() {
+  async deleteAccount(): Promise<void> {
     const token = getToken();
 
     if (!token) {
@@ -396,26 +476,19 @@ export const customerAuthApi = {
     }
 
     try {
-      let data: any;
-
       if (isIOSNative()) {
-        data = await iosDelete<any>(
-          '/api/v1/customer-auth/account',
+        await iosDelete<any>(
+          '/api/v1/customer-auth/delete-account',
           token
         );
       } else {
-        const response = await api.delete(
-          `${getAPIBaseURL()}/api/v1/customer-auth/account`,
-          {
-            headers: getAuthHeaders(),
-          }
+        await api.delete(
+          `${getAPIBaseURL()}/api/v1/customer-auth/delete-account`,
+          { headers: getAuthHeaders() }
         );
-
-        data = response.data;
       }
 
       clearSession();
-      return data;
     } catch (error) {
       throw new Error(
         getAxiosErrorMessage(error, 'Account deletion failed')
