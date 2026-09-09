@@ -9,6 +9,7 @@ import React, {
 
 import {
   Customer,
+  GoogleLoginPending,
   customerAuthApi,
 } from '../lib/customer-auth';
 
@@ -23,6 +24,14 @@ interface CustomerAuthContextType {
     pin: string
   ) => Promise<void>;
   login: (
+    phone: string,
+    pin: string
+  ) => Promise<void>;
+  googleLogin: (
+    credential: string
+  ) => Promise<GoogleLoginPending | null>;
+  completeGoogleLogin: (
+    signupToken: string,
     phone: string,
     pin: string
   ) => Promise<void>;
@@ -156,6 +165,61 @@ export function CustomerAuthProvider({
     }
   };
 
+
+  const googleLogin = async (
+    credential: string
+  ): Promise<GoogleLoginPending | null> => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const result = await customerAuthApi.googleLogin(credential);
+
+      if ('needs_phone' in result && result.needs_phone) {
+        return result;
+      }
+
+      setCustomer(result as Customer);
+      return null;
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Google sign-in failed';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeGoogleLogin = async (
+    signupToken: string,
+    phone: string,
+    pin: string
+  ) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const linkedCustomer =
+        await customerAuthApi.completeGoogleLogin(
+          signupToken,
+          phone,
+          pin
+        );
+      setCustomer(linkedCustomer);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Could not finish Google sign-in';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     customerAuthApi.logout();
     setCustomer(null);
@@ -198,6 +262,8 @@ export function CustomerAuthProvider({
       isLoggedIn: Boolean(customer),
       signup,
       login,
+      googleLogin,
+      completeGoogleLogin,
       logout,
       refreshCustomer,
       clearError,
