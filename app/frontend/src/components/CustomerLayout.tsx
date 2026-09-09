@@ -1,11 +1,10 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, UtensilsCrossed, ShoppingCart, ClipboardList, UserRound, Gift } from 'lucide-react';
+import { Home, UtensilsCrossed, ShoppingCart, ClipboardList, UserRound } from 'lucide-react';
 import { getCartItemCount, getCart } from '@/lib/cart-store';
 import { useTranslation } from '@/lib/i18n';
 import { LanguageSwitcher } from '@/components/LanguagePicker';
 import FaiFaiWordmark from '@/components/FaiFaiWordmark';
-import { getRewardsStatus } from '@/lib/rewards';
 
 interface CustomerLayoutProps {
   children: ReactNode;
@@ -15,7 +14,6 @@ export default function CustomerLayout({ children }: CustomerLayoutProps) {
   const location = useLocation();
   const { t } = useTranslation();
   const [cartCount, setCartCount] = useState(0);
-  const [rewardsEnabled, setRewardsEnabled] = useState(false);
 
   useEffect(() => {
     const updateCount = () => setCartCount(getCartItemCount(getCart()));
@@ -30,14 +28,6 @@ export default function CustomerLayout({ children }: CustomerLayoutProps) {
       window.removeEventListener('cart-updated', updateCount);
     };
   }, [location]);
-
-  useEffect(() => {
-    let active = true;
-    getRewardsStatus()
-      .then(enabled => { if (active) setRewardsEnabled(enabled); })
-      .catch(() => { if (active) setRewardsEnabled(false); });
-    return () => { active = false; };
-  }, [location.pathname]);
 
   const navItems = [
     { path: '/', icon: Home, label: t('nav.home') },
@@ -73,15 +63,6 @@ export default function CustomerLayout({ children }: CustomerLayoutProps) {
             <FaiFaiWordmark compact className="text-xl" />
           </Link>
           <div className="flex items-center gap-2">
-            {rewardsEnabled && (
-              <Link
-                to="/rewards"
-                aria-label="Rewards"
-                className={`rounded-full p-2 transition ${location.pathname === '/rewards' ? 'bg-yellow-500/20 text-yellow-400' : 'text-gray-300 hover:bg-white/10 hover:text-yellow-400'}`}
-              >
-                <Gift className="h-5 w-5" />
-              </Link>
-            )}
             <LanguageSwitcher />
           </div>
 
