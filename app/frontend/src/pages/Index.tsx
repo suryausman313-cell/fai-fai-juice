@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Clock, Phone, MapPin, ChevronRight, Tag, MessageSquare, Star, Package, UserRound, Gift, Crown } from 'lucide-react';
+import { ShoppingBag, Clock, Phone, MapPin, ChevronRight, Tag, MessageSquare, Star, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,6 @@ import { getItemPriceBreakdown, isPromoOfferCurrentlyActive } from '@/lib/discou
 import { useTranslation } from '@/lib/i18n';
 import { LanguageSwitcher } from '@/components/LanguagePicker';
 import NotificationBanner from '@/components/NotificationBanner';
-import { getMyRewards, RewardsPayload } from '@/lib/rewards';
 
 // Welcome animation is shown once per app load, not every time the Home route is opened.
 let welcomeHasBeenShown = false;
@@ -68,25 +67,6 @@ export default function Index() {
   const [offers, setOffers] = useState<Offer[]>(cached?.offers || []);
   // Only show loading spinner if we have NO cached data
   const [loading, setLoading] = useState(!cached);
-  const [rewardsData, setRewardsData] = useState<RewardsPayload | null>(null);
-
-  useEffect(() => {
-    const token = localStorage.getItem('vita_customer_token');
-    if (!token) return;
-
-    let active = true;
-    getMyRewards()
-      .then((payload) => {
-        if (active) setRewardsData(payload);
-      })
-      .catch(() => {
-        // Rewards must never block or disturb the live Home screen.
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -184,15 +164,6 @@ export default function Index() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => navigate('/account-settings')}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-700 text-gray-300 hover:border-gray-600 hover:text-white"
-              aria-label="Account settings"
-              title="Account"
-            >
-              <UserRound className="h-4 w-4" />
-            </button>
             <LanguageSwitcher />
             <div className="flex items-center gap-1.5">
               <div className={`w-2.5 h-2.5 rounded-full ${getStatusColor(restaurantStatus)} animate-pulse`} />
@@ -237,51 +208,6 @@ export default function Index() {
             </div>
           )}
         </div>
-
-        {/* Fai Fai Rewards - visible only while Admin has Rewards ON */}
-        {rewardsData?.enabled === true && (
-          <button
-            type="button"
-            onClick={() => navigate('/rewards')}
-            className="mb-6 w-full overflow-hidden rounded-2xl border border-yellow-500/40 bg-gradient-to-br from-yellow-500/15 via-orange-500/10 to-red-600/10 p-4 text-left shadow-lg shadow-yellow-950/10 transition active:scale-[0.99]"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-yellow-500/20 text-yellow-400">
-                <Gift className="h-7 w-7" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-base font-black text-white">{language === 'ar' ? 'مكافآت فاي فاي' : 'Fai Fai Rewards'}</p>
-                    <p className="mt-0.5 text-xs text-gray-300">
-                      {(rewardsData.available?.length || 0) > 0
-                        ? (language === 'ar' ? `${rewardsData.available.length} مكافأة جاهزة للاستخدام` : `${rewardsData.available.length} reward${rewardsData.available.length > 1 ? 's' : ''} ready to use`)
-                        : (language === 'ar' ? 'اطلب بقيمة 15 درهماً أو أكثر لفتح صندوق مفاجأة' : 'Order AED 15+ to unlock a Surprise Reward')}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-5 w-5 shrink-0 text-yellow-400" />
-                </div>
-
-                <div className="mt-3 flex items-center gap-2">
-                  <Crown className="h-4 w-4 shrink-0 text-yellow-400" />
-                  <span className="text-xs font-semibold text-yellow-200">{language === 'ar' ? 'المكافأة الذهبية' : 'Golden Reward'}</span>
-                  <span className="ml-auto text-xs font-black text-white">
-                    {rewardsData.gold_progress || 0}/{rewardsData.gold_required || 3}
-                  </span>
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-800">
-                  <div
-                    className="h-full rounded-full bg-yellow-500"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, ((Number(rewardsData.gold_progress || 0) / Math.max(1, Number(rewardsData.gold_required || 3))) * 100)))}%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-1.5 text-[11px] text-gray-400">{language === 'ar' ? '3 طلبات بقيمة 100 درهم أو أكثر خلال 30 يوماً' : '3 orders of AED 100+ within 30 days'}</p>
-              </div>
-            </div>
-          </button>
-        )}
 
         {/* Active Offers */}
         {settings?.show_offers !== false && offers.length > 0 && (
