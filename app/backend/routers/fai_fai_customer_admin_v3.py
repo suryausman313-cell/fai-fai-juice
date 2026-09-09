@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
 from models.customer_pin_accounts_v2 import Customer_pin_accounts_v2
+from models.customer_sessions import Customer_sessions
 from models.orders import Orders
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,18 @@ async def list_registered_customers(
     order_result = await db.execute(select(Orders))
     orders = order_result.scalars().all()
 
+    google_result = await db.execute(
+        select(Customer_sessions)
+        .where(Customer_sessions.user_id.ilike("google:%"))
+        .order_by(desc(Customer_sessions.id))
+    )
+    google_sessions = google_result.scalars().all()
+    google_by_phone: dict[str, Customer_sessions] = {}
+    for session in google_sessions:
+        key = phone_key(session.customer_phone)
+        if key and key not in google_by_phone:
+            google_by_phone[key] = session
+
     stats: dict[str, dict] = {}
 
     for order in orders:
@@ -232,14 +245,20 @@ async def list_registered_customers(
     items = []
 
     for account in accounts:
+        key = phone_key(account.phone)
+        google_session = google_by_phone.get(key)
+        google_email = str(
+            getattr(google_session, "customer_email", "") or ""
+        ).strip()
+
         if query_text:
             if (
                 query_text not in str(account.customer_name or "").lower()
                 and query_text not in str(account.phone or "").lower()
+                and query_text not in google_email.lower()
             ):
                 continue
 
-        key = phone_key(account.phone)
         order_stats = stats.get(
             key,
             {
@@ -265,6 +284,11 @@ async def list_registered_customers(
                 "phone": account.phone,
                 "customer_phone": account.phone,
                 "phone_verified": bool(account.phone_verified),
+                "customer_email": google_email or None,
+                "email": google_email or None,
+                "email_verified": bool(google_session and google_email),
+                "auth_provider": "google" if google_session else "phone_pin",
+                "google_verified": bool(google_session and google_email),
                 "is_locked": bool(
                     locked_until and locked_until > now
                 ),
