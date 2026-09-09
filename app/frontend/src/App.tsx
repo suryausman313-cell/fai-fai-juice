@@ -1,9 +1,6 @@
 import {
-  Component,
-  ErrorInfo,
   lazy,
   ReactElement,
-  ReactNode,
   Suspense,
 } from 'react';
 
@@ -42,18 +39,14 @@ const OrderConfirmation = lazy(
 );
 
 const MyOrders = lazy(() => import('./pages/MyOrders'));
-const Rewards = lazy(() => import('./pages/Rewards'));
 const Contact = lazy(() => import('./pages/Contact'));
 const Deals = lazy(() => import('./pages/Deals'));
 const Feedback = lazy(() => import('./pages/Feedback'));
 const Reviews = lazy(() => import('./pages/Reviews'));
+const Support = lazy(() => import('./pages/Support'));
 
 const CustomerAuth = lazy(
   () => import('./pages/CustomerAuth')
-);
-
-const AccountSettings = lazy(
-  () => import('./pages/AccountSettings')
 );
 
 const RiderPanel = lazy(
@@ -123,10 +116,6 @@ const AdminDeliverySettings = lazy(
 
 const AdminFeesSettings = lazy(
   () => import('./pages/admin/AdminFeesSettings')
-);
-
-const AdminRewardsSettings = lazy(
-  () => import('./pages/admin/AdminRewardsSettings')
 );
 
 const AdminPromotionSettings = lazy(
@@ -202,63 +191,9 @@ const queryClient = new QueryClient({
 });
 
 function PageLoader() {
-  // Never leave the user with a completely blank/black screen while a lazy
-  // route or auth state is loading. Keep this lightweight for mobile devices.
-  return (
-    <div
-      className="min-h-screen bg-gray-950 flex items-center justify-center px-6"
-      aria-busy="true"
-    >
-      <div className="text-center" role="status">
-        <div className="text-white text-xl font-bold mb-3">Fai Fai Juice</div>
-        <div className="w-7 h-7 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="text-gray-400 text-sm mt-3">Loading…</p>
-      </div>
-    </div>
-  );
-}
-
-interface AppErrorBoundaryState {
-  hasError: boolean;
-}
-
-class AppErrorBoundary extends Component<
-  { children: ReactNode },
-  AppErrorBoundaryState
-> {
-  state: AppErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): AppErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Fai Fai app render error:', error, info);
-  }
-
-  handleReload = () => {
-    window.location.reload();
-  };
-
-  render() {
-    if (!this.state.hasError) return this.props.children;
-
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-6 text-center">
-        <div>
-          <div className="text-white text-xl font-bold mb-2">Fai Fai Juice</div>
-          <p className="text-gray-400 text-sm mb-4">Something went wrong. Please reload the app.</p>
-          <button
-            type="button"
-            onClick={this.handleReload}
-            className="rounded-lg bg-red-600 px-5 py-3 text-white font-semibold"
-          >
-            Reload App
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Keep route/auth loading visually neutral so the customer sees only the
+  // single approved welcome artwork owned by pages/Index.tsx.
+  return <div className="min-h-screen bg-gray-950" aria-busy="true" />;
 }
 
 interface ProtectedCustomerRouteProps {
@@ -297,32 +232,10 @@ const AppRoutes = () => (
         element={<CustomerAuth />}
       />
 
-      <Route
-        path="/account-settings"
-        element={
-          <ProtectedCustomerRoute>
-            <AccountSettings />
-          </ProtectedCustomerRoute>
-        }
-      />
-
-      <Route
-        path="/"
-        element={
-          <ProtectedCustomerRoute>
-            <Index />
-          </ProtectedCustomerRoute>
-        }
-      />
-
-      <Route
-        path="/menu"
-        element={
-          <ProtectedCustomerRoute>
-            <Menu />
-          </ProtectedCustomerRoute>
-        }
-      />
+      {/* Apple 5.1.1(v): browsing must not require an account. */}
+      <Route path="/" element={<Index />} />
+      <Route path="/menu" element={<Menu />} />
+      <Route path="/support" element={<Support />} />
 
       <Route
         path="/cart"
@@ -356,15 +269,6 @@ const AppRoutes = () => (
         element={
           <ProtectedCustomerRoute>
             <MyOrders />
-          </ProtectedCustomerRoute>
-        }
-      />
-
-      <Route
-        path="/rewards"
-        element={
-          <ProtectedCustomerRoute>
-            <Rewards />
           </ProtectedCustomerRoute>
         }
       />
@@ -495,11 +399,6 @@ const AppRoutes = () => (
       />
 
       <Route
-        path="/admin/settings/rewards"
-        element={<AdminRewardsSettings />}
-      />
-
-      <Route
         path="/admin/settings/promotions"
         element={<AdminPromotionSettings />}
       />
@@ -589,9 +488,7 @@ const App = () => (
           <CustomerAuthProvider>
             <BranchProvider>
               <CustomerHeartbeatProvider>
-                <AppErrorBoundary>
-                  <AppRoutes />
-                </AppErrorBoundary>
+                <AppRoutes />
               </CustomerHeartbeatProvider>
             </BranchProvider>
           </CustomerAuthProvider>
