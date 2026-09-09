@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Gift,
@@ -72,6 +72,7 @@ function initials(name: string): string {
 
 export default function CustomerAuth() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     customer,
     isLoggedIn,
@@ -89,6 +90,21 @@ export default function CustomerAuth() {
       '+971',
     [],
   );
+
+  const returnTo = useMemo(() => {
+    const requested = new URLSearchParams(location.search).get('next') || '';
+
+    // Only allow internal customer routes. Never accept an external redirect.
+    if (!requested.startsWith('/') || requested.startsWith('//') || requested.startsWith('/account')) {
+      return '/';
+    }
+
+    return requested;
+  }, [location.search]);
+
+  function continueAfterAuth(): void {
+    navigate(returnTo, { replace: true });
+  }
 
   const [mode, setMode] = useState<ScreenMode>('choice');
   const [loading, setLoading] = useState(false);
@@ -157,6 +173,7 @@ export default function CustomerAuth() {
 
       localStorage.setItem(LAST_AUTH_METHOD_KEY, 'google');
       toast.success('Google sign-in successful');
+      continueAfterAuth();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Google sign-in failed'));
     }
@@ -276,7 +293,7 @@ export default function CustomerAuth() {
       return;
     }
 
-    navigate('/', { replace: true });
+    navigate(returnTo === '/' ? '/' : returnTo, { replace: true });
   }
 
   async function handleGoogleComplete(event: FormEvent) {
@@ -300,6 +317,7 @@ export default function CustomerAuth() {
       setGooglePending(null);
       setGooglePin('');
       toast.success('Google account connected successfully');
+      continueAfterAuth();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not finish Google sign-in'));
     } finally {
@@ -326,6 +344,7 @@ export default function CustomerAuth() {
       rememberDeviceAccount(phone, '', 'phone_pin');
       setLoginPin('');
       toast.success('Login successful');
+      continueAfterAuth();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Invalid mobile number or PIN.'));
     } finally {
@@ -362,6 +381,7 @@ export default function CustomerAuth() {
       setSignupPin('');
       setSignupConfirmPin('');
       toast.success('Account created successfully');
+      continueAfterAuth();
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not create account.'));
     } finally {
