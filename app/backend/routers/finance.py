@@ -3,6 +3,7 @@
 
 import json
 import logging
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal, Optional
 
@@ -385,6 +386,21 @@ def _items_subtotal(items_json: str) -> float:
     return round(subtotal, 2)
 
 
+
+def _ziina_fee(order: Orders) -> float:
+    """Return the actual Ziina fee stored in order notes, converted from fils to AED."""
+    payment = str(getattr(order, "payment_method", "") or "").lower()
+    if "ziina" not in payment:
+        return 0.0
+
+    notes = str(getattr(order, "order_notes", "") or "")
+    matches = re.findall(r"Ziina Fee:\s*(\d+)", notes, flags=re.IGNORECASE)
+    if not matches:
+        return 0.0
+
+    return round(max(0, int(matches[-1])) / 100.0, 2)
+
+
 def _order_financials(
     order: Orders,
     assignment: Optional[Delivery_assignments] = None,
@@ -465,6 +481,13 @@ def _order_financials(
     cash_collected = total if is_cash else 0.0
     card_collected = 0.0 if is_cash else total
 
+    # Accounting allocation requested by the shop:
+    # Ziina's actual provider fee is deducted from FOOD revenue only.
+    # Delivery charge, service fee, small-order fee and tips remain untouched.
+    ziina_fee = 0.0 if is_cash else _ziina_fee(order)
+    shop_food_after_ziina = max(round(food_net - ziina_fee, 2), 0.0)
+    online_net_received = max(round(card_collected - ziina_fee, 2), 0.0)
+
     # Rider cash and Rider earnings are two separate ledgers. The Rider must
     # submit the full customer cash to the shop; delivery charge + Rider tip
     # remain Rider earnings and are paid separately by Admin.
@@ -484,7 +507,10 @@ def _order_financials(
         "customer_total": total,
         "food_subtotal": round(food_subtotal, 2),
         "discount_amount": round(discount_amount, 2),
-        "shop_food_sale": round(food_net, 2),
+        "shop_food_sale": shop_food_after_ziina,
+        "shop_food_before_ziina": round(food_net, 2),
+        "ziina_fee": ziina_fee,
+        "online_net_received": online_net_received,
         "service_fee": service_fee,
         "small_order_fee": small_order_fee,
         "developer_fees": developer_fees,
@@ -508,6 +534,9 @@ def _empty_totals() -> dict:
         "food_subtotal": 0.0,
         "discount_amount": 0.0,
         "shop_food_sale": 0.0,
+        "shop_food_before_ziina": 0.0,
+        "ziina_fee": 0.0,
+        "online_net_received": 0.0,
         "service_fee": 0.0,
         "small_order_fee": 0.0,
         "developer_fees": 0.0,
@@ -533,6 +562,9 @@ def _add_order_to_totals(totals: dict, values: dict) -> None:
     totals["food_subtotal"] += values["food_subtotal"]
     totals["discount_amount"] += values["discount_amount"]
     totals["shop_food_sale"] += values["shop_food_sale"]
+    totals["shop_food_before_ziina"] += values["shop_food_before_ziina"]
+    totals["ziina_fee"] += values["ziina_fee"]
+    totals["online_net_received"] += values["online_net_received"]
     totals["service_fee"] += values["service_fee"]
     totals["small_order_fee"] += values["small_order_fee"]
     totals["developer_fees"] += values["developer_fees"]
@@ -1464,8 +1496,9 @@ async def get_admin_finance_summary(
         "rules": {
             "discount_applies_to": "menu_items_only",
             "shop_sale": (
-                "food_subtotal_minus_discount"
+                "food_subtotal_minus_discount_minus_ziina_fee"
             ),
+            "ziina_fee_allocation": "food_items_only",
             "developer_fees": (
                 "service_fee_plus_small_order_fee"
             ),

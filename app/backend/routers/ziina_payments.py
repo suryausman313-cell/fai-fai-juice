@@ -29,6 +29,7 @@ ZIINA_API_BASE = "https://api-v2.ziina.com/api"
 ZIINA_INTENT_MARKER = "Ziina Payment Intent:"
 ZIINA_REFUND_MARKER = "Ziina Refund:"
 ZIINA_ABANDONED_MARKER = "Ziina Payment Abandoned:"
+ZIINA_FEE_MARKER = "Ziina Fee:"
 ACTIVE_STATUSES = {"requires_payment_instrument", "requires_user_action", "pending"}
 FAILED_STATUSES = {"failed", "canceled", "cancelled"}
 
@@ -98,6 +99,30 @@ def append_note(existing: Optional[str], new_note: str) -> str:
     if new_note in current:
         return current
     return f"{current} | {new_note}".strip(" |")
+
+
+
+
+def ziina_fee_marker(amount_fils: int) -> str:
+    return f"{ZIINA_FEE_MARKER} {max(0, int(amount_fils))}"
+
+
+def set_ziina_fee_note(existing: Optional[str], amount_fils: Any) -> str:
+    """Store the latest Ziina fee in fils without exposing it as a customer note."""
+    try:
+        fee_fils = max(0, int(amount_fils or 0))
+    except (TypeError, ValueError):
+        fee_fils = 0
+
+    current = str(existing or "").strip()
+    parts = [part.strip() for part in current.split("|") if part.strip()]
+    parts = [
+        part
+        for part in parts
+        if not re.match(r"^Ziina Fee:\s*\d+$", part, flags=re.IGNORECASE)
+    ]
+    parts.append(ziina_fee_marker(fee_fils))
+    return " | ".join(parts)
 
 
 def abandoned_marker() -> str:
@@ -211,6 +236,16 @@ async def release_paid_order(
     current_status = str(order.status or "").strip().lower()
 
     if status == "completed":
+        # Ziina returns the real provider fee in fils. Keep it with the order so
+        # Admin Finance can show the exact settlement fee instead of guessing.
+        # This is internal-only metadata; public_order_notes() removes it.
+        previous_notes = str(order.order_notes or "")
+        order.order_notes = set_ziina_fee_note(
+            order.order_notes,
+            intent.get("fee_amount"),
+        )
+        fee_note_changed = str(order.order_notes or "") != previous_notes
+
         if current_status == "payment_pending":
             order.status = "new"
             order.payment_method = "Ziina Online (Paid)"
@@ -229,6 +264,12 @@ async def release_paid_order(
                 except Exception:
                     logging.exception("Auto rider assignment failed after Ziina payment for order %s", order.id)
                     await db.rollback()
+        elif fee_note_changed:
+            # Verification/webhook can run again after the order has already been
+            # released. Persist the final fee even when status is no longer pending.
+            await db.commit()
+            await db.refresh(order)
+
         elif current_status == "cancelled" and is_abandoned_payment(order):
             # The customer switched away from this hosted checkout (for example to Cash).
             # Ziina does not expose a payment-intent cancellation endpoint in its
@@ -506,6 +547,11 @@ async def create_payment(
         raise HTTPException(status_code=502, detail="Ziina did not return a valid payment link")
 
     order.order_notes = append_note(order.order_notes, marker(intent_id))
+    if intent.get("fee_amount") is not None:
+        order.order_notes = set_ziina_fee_note(
+            order.order_notes,
+            intent.get("fee_amount"),
+        )
     await db.commit()
 
     return {
