@@ -108,7 +108,7 @@ def ziina_fee_marker(amount_fils: int) -> str:
 
 
 def set_ziina_fee_note(existing: Optional[str], amount_fils: Any) -> str:
-    """Store the latest Ziina fee in fils without exposing it as a customer note."""
+    """Store the latest Ziina fee in fils as internal order metadata."""
     try:
         fee_fils = max(0, int(amount_fils or 0))
     except (TypeError, ValueError):
@@ -236,9 +236,6 @@ async def release_paid_order(
     current_status = str(order.status or "").strip().lower()
 
     if status == "completed":
-        # Ziina returns the real provider fee in fils. Keep it with the order so
-        # Admin Finance can show the exact settlement fee instead of guessing.
-        # This is internal-only metadata; public_order_notes() removes it.
         previous_notes = str(order.order_notes or "")
         order.order_notes = set_ziina_fee_note(
             order.order_notes,
@@ -265,8 +262,6 @@ async def release_paid_order(
                     logging.exception("Auto rider assignment failed after Ziina payment for order %s", order.id)
                     await db.rollback()
         elif fee_note_changed:
-            # Verification/webhook can run again after the order has already been
-            # released. Persist the final fee even when status is no longer pending.
             await db.commit()
             await db.refresh(order)
 

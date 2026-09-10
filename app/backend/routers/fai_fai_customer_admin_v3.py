@@ -197,17 +197,26 @@ async def list_registered_customers(
     order_result = await db.execute(select(Orders))
     orders = order_result.scalars().all()
 
-    google_result = await db.execute(
-        select(Customer_sessions)
-        .where(Customer_sessions.user_id.ilike("google:%"))
-        .order_by(desc(Customer_sessions.id))
+    session_result = await db.execute(
+        select(Customer_sessions).order_by(desc(Customer_sessions.id))
     )
-    google_sessions = google_result.scalars().all()
+    all_sessions = session_result.scalars().all()
+
     google_by_phone: dict[str, Customer_sessions] = {}
-    for session in google_sessions:
+    active_by_phone: dict[str, Customer_sessions] = {}
+    for session in all_sessions:
         key = phone_key(session.customer_phone)
-        if key and key not in google_by_phone:
+        if not key:
+            continue
+
+        if str(session.user_id or '').startswith('google:') and key not in google_by_phone:
             google_by_phone[key] = session
+
+        current = active_by_phone.get(key)
+        current_active = as_aware(getattr(current, 'last_active', None)) if current else None
+        candidate_active = as_aware(session.last_active)
+        if current is None or (candidate_active and (current_active is None or candidate_active > current_active)):
+            active_by_phone[key] = session
 
     stats: dict[str, dict] = {}
 
@@ -271,10 +280,14 @@ async def list_registered_customers(
         locked_until = as_aware(account.locked_until)
         last_login_at = as_aware(account.last_login_at)
         updated_at = as_aware(account.updated_at)
-        last_active = last_login_at or updated_at
+        presence_session = active_by_phone.get(key)
+        heartbeat_active = as_aware(
+            getattr(presence_session, 'last_active', None)
+        ) if presence_session else None
+        last_active = heartbeat_active or last_login_at or updated_at
         is_online = bool(
-            last_active
-            and (now - last_active) <= timedelta(minutes=5)
+            heartbeat_active
+            and (now - heartbeat_active) <= timedelta(seconds=75)
         )
 
         items.append(

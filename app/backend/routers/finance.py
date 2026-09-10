@@ -388,16 +388,13 @@ def _items_subtotal(items_json: str) -> float:
 
 
 def _ziina_fee(order: Orders) -> float:
-    """Return the actual Ziina fee stored in order notes, converted from fils to AED."""
     payment = str(getattr(order, "payment_method", "") or "").lower()
     if "ziina" not in payment:
         return 0.0
-
     notes = str(getattr(order, "order_notes", "") or "")
     matches = re.findall(r"Ziina Fee:\s*(\d+)", notes, flags=re.IGNORECASE)
     if not matches:
         return 0.0
-
     return round(max(0, int(matches[-1])) / 100.0, 2)
 
 
@@ -481,9 +478,6 @@ def _order_financials(
     cash_collected = total if is_cash else 0.0
     card_collected = 0.0 if is_cash else total
 
-    # Accounting allocation requested by the shop:
-    # Ziina's actual provider fee is deducted from FOOD revenue only.
-    # Delivery charge, service fee, small-order fee and tips remain untouched.
     ziina_fee = 0.0 if is_cash else _ziina_fee(order)
     shop_food_after_ziina = max(round(food_net - ziina_fee, 2), 0.0)
     online_net_received = max(round(card_collected - ziina_fee, 2), 0.0)
