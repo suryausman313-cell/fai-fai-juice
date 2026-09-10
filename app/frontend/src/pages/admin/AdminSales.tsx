@@ -259,6 +259,15 @@ function paymentLabel(method: string | undefined): string {
   return isCashPayment(method) ? 'Cash' : 'Online Payment';
 }
 
+function parseOrderItems(order: ReportOrder): any[] {
+  try {
+    const parsed = JSON.parse(String(order.items_json || '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function isDeliveryReportOrder(order: ReportOrder): boolean {
   const explicit = String(order.order_type || '').toLowerCase().trim();
   if (explicit === 'delivery') return true;
@@ -333,6 +342,7 @@ function escapeCsv(value: unknown): string {
 
 export default function AdminSales() {
   const navigate = useNavigate();
+  const [selectedReportOrder, setSelectedReportOrder] = useState<ReportOrder | null>(null);
 
   const [period, setPeriod] = useState<FinancePeriod>('today');
   const [customFrom, setCustomFrom] = useState(
@@ -1161,7 +1171,13 @@ export default function AdminSales() {
           ) : (
             <div className="divide-y divide-gray-800">
               {visibleOrders.slice(0, 300).map(order => (
-                <div key={String(order.id)} className="p-4 hover:bg-gray-800/30">
+                <button
+                  key={String(order.id)}
+                  type="button"
+                  onClick={() => setSelectedReportOrder(order)}
+                  className="w-full p-4 text-left hover:bg-gray-800/30 transition-colors cursor-pointer"
+                  aria-label={`Open details for order ${order.id}`}
+                >
                   <div className="flex items-start gap-3">
                     <div
                       className={`w-10 h-10 rounded-xl flex items-center justify-center ${
@@ -1232,11 +1248,101 @@ export default function AdminSales() {
                       </p>
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </Card>
+
+        {selectedReportOrder && (() => {
+          const order = selectedReportOrder;
+          const items = parseOrderItems(order);
+          const itemSubtotal = numeric(order.subtotal_amount) || items.reduce((sum, item) => {
+            const qty = Math.max(1, numeric(item?.quantity) || 1);
+            return sum + numeric(item?.price) * qty;
+          }, 0);
+
+          return (
+            <div
+              className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4"
+              onClick={() => setSelectedReportOrder(null)}
+            >
+              <div
+                className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-gray-700 bg-gray-950 p-5 shadow-2xl"
+                onClick={event => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h2 className="text-white text-xl font-black">Order #{order.id}</h2>
+                    <p className="text-gray-500 text-xs mt-1">{formatDate(reportDateValue(order))}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedReportOrder(null)}
+                    className="border-gray-700 text-gray-300"
+                  >
+                    Close
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+                  <div className="rounded-xl bg-gray-900 p-3"><p className="text-gray-500 text-xs">Status</p><p className="text-white font-semibold capitalize mt-1">{order.status || '-'}</p></div>
+                  <div className="rounded-xl bg-gray-900 p-3"><p className="text-gray-500 text-xs">Order Type</p><p className="text-white font-semibold capitalize mt-1">{order.order_type || '-'}</p></div>
+                  <div className="rounded-xl bg-gray-900 p-3"><p className="text-gray-500 text-xs">Payment</p><p className="text-white font-semibold mt-1">{paymentLabel(order.payment_method)}</p></div>
+                  <div className="rounded-xl bg-gray-900 p-3"><p className="text-gray-500 text-xs">Total</p><p className="text-emerald-400 font-black mt-1">AED {money(order.total_amount)}</p></div>
+                </div>
+
+                <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-4 mb-4">
+                  <h3 className="text-white font-semibold mb-3">Customer</h3>
+                  <p className="text-gray-300">{order.customer_name || 'Guest'}</p>
+                  <p className="text-gray-500 text-sm mt-1">{order.customer_phone || 'No phone'}</p>
+                  {order.delivery_area_name && <p className="text-gray-500 text-sm mt-1">Area: {order.delivery_area_name}</p>}
+                </div>
+
+                <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-4 mb-4">
+                  <h3 className="text-white font-semibold mb-3">Items</h3>
+                  {items.length === 0 ? (
+                    <p className="text-gray-500 text-sm">Item details unavailable</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {items.map((item, index) => (
+                        <div key={`${item?.id || item?.name || 'item'}-${index}`} className="border-b border-gray-800 pb-3 last:border-0 last:pb-0">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-white font-medium">{numeric(item?.quantity) || 1}× {item?.name || 'Item'}</p>
+                              {item?.size && <p className="text-gray-500 text-xs mt-1">Size: {item.size}</p>}
+                              {Array.isArray(item?.extras) && item.extras.length > 0 && <p className="text-gray-500 text-xs mt-1">Extras: {item.extras.join(', ')}</p>}
+                            </div>
+                            <p className="text-white font-semibold">AED {money(numeric(item?.price) * Math.max(1, numeric(item?.quantity) || 1))}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between text-gray-300"><span>Items</span><span>AED {money(itemSubtotal)}</span></div>
+                  {numeric(order.discount_amount) > 0 && <div className="flex justify-between text-green-400"><span>Discount</span><span>- AED {money(order.discount_amount)}</span></div>}
+                  {numeric(order.service_fee) > 0 && <div className="flex justify-between text-gray-300"><span>Service Fee</span><span>AED {money(order.service_fee)}</span></div>}
+                  {numeric(order.small_order_fee) > 0 && <div className="flex justify-between text-gray-300"><span>Small Order Fee</span><span>AED {money(order.small_order_fee)}</span></div>}
+                  {numeric(order.delivery_charge) > 0 && <div className="flex justify-between text-gray-300"><span>Delivery</span><span>AED {money(order.delivery_charge)}</span></div>}
+                  {numeric(order.tip_amount) > 0 && <div className="flex justify-between text-gray-300"><span>Tip{order.tip_type ? ` (${order.tip_type})` : ''}</span><span>AED {money(order.tip_amount)}</span></div>}
+                  <div className="border-t border-gray-700 pt-2 mt-2 flex justify-between text-white font-black text-base"><span>Customer Paid</span><span>AED {money(order.total_amount)}</span></div>
+                </div>
+
+                {order.order_notes && (
+                  <div className="rounded-xl border border-gray-800 bg-gray-900/70 p-4 mt-4">
+                    <h3 className="text-white font-semibold mb-2">Order Notes</h3>
+                    <p className="text-gray-400 text-sm whitespace-pre-wrap">{order.order_notes}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
