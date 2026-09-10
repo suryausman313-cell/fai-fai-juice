@@ -25,6 +25,7 @@ from sqlalchemy import MetaData, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
+from models.reward_settings import Reward_settings
 
 router = APIRouter(
     prefix="/api/v1/fai-fai-admin-control",
@@ -172,6 +173,10 @@ class AdminAccountUpdateRequest(BaseModel):
 class ResetRequest(BaseModel):
     reset_type: str = Field(min_length=1, max_length=50)
     confirmation: str = Field(min_length=1, max_length=100)
+
+
+class RewardSettingsUpdateRequest(BaseModel):
+    enabled: bool
 
 
 @dataclass
@@ -660,6 +665,11 @@ def require_accounts_permission(identity: AdminIdentity) -> None:
         raise HTTPException(status_code=403, detail="Admin Accounts permission is required.")
 
 
+def require_settings_permission(identity: AdminIdentity) -> None:
+    if identity.role != "super_admin" and not identity.permissions.get("settings"):
+        raise HTTPException(status_code=403, detail="Settings permission is required.")
+
+
 # ---------------------------------------------------------------------------
 # Login and account endpoints
 # ---------------------------------------------------------------------------
@@ -781,6 +791,45 @@ async def admin_me(identity: AdminIdentity = Depends(get_current_admin)):
         "role": identity.role,
         "permissions": identity.permissions,
         "branch_id": identity.branch_id,
+    }
+
+
+@router.get("/reward-settings")
+async def get_reward_settings_admin_control(
+    identity: AdminIdentity = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    require_settings_permission(identity)
+    row = await db.scalar(
+        select(Reward_settings).order_by(Reward_settings.id.asc()).limit(1)
+    )
+    if row is None:
+        row = Reward_settings(enabled=True)
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+    return {"enabled": bool(row.enabled)}
+
+
+@router.put("/reward-settings")
+async def update_reward_settings_admin_control(
+    body: RewardSettingsUpdateRequest,
+    identity: AdminIdentity = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    require_settings_permission(identity)
+    row = await db.scalar(
+        select(Reward_settings).order_by(Reward_settings.id.asc()).limit(1)
+    )
+    if row is None:
+        row = Reward_settings(enabled=bool(body.enabled))
+        db.add(row)
+    else:
+        row.enabled = bool(body.enabled)
+    await db.commit()
+    return {
+        "enabled": bool(body.enabled),
+        "message": "Rewards turned ON" if body.enabled else "Rewards turned OFF",
     }
 
 
