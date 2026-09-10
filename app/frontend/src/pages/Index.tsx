@@ -10,8 +10,7 @@ import { useTranslation } from '@/lib/i18n';
 import { LanguageSwitcher } from '@/components/LanguagePicker';
 import NotificationBanner from '@/components/NotificationBanner';
 
-// Welcome animation is shown once per app load, not every time the Home route is opened.
-let welcomeHasBeenShown = false;
+const WELCOME_SESSION_KEY = 'fai_fai_welcome_shown_running_session';
 
 const CACHE_KEY = 'fai_home_cache_v6';
 const CACHE_TTL = 120000; // 2 minutes
@@ -45,12 +44,17 @@ function setCachedData(data: Omit<CachedData, 'timestamp'>) {
 export default function Index() {
   const navigate = useNavigate();
   const { t, isRTL, language } = useTranslation();
-  // Show the welcome animation only once for this app/page-load session.
-  // Navigating to Home again will NOT restart it. A full app reload starts a new session.
+  // Show once while this app/WebView session is running. Route changes, including
+  // Menu -> Home, must not replay it. A fresh app process/WebView gets a new
+  // sessionStorage session and can show it once again.
   const [showWelcome, setShowWelcome] = useState(() => {
-    if (welcomeHasBeenShown) return false;
-    welcomeHasBeenShown = true;
-    return true;
+    try {
+      if (sessionStorage.getItem(WELCOME_SESSION_KEY) === '1') return false;
+      sessionStorage.setItem(WELCOME_SESSION_KEY, '1');
+      return true;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
