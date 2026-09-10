@@ -970,12 +970,6 @@ export default function AdminSales() {
                   </p>
                 </div>
 
-                <div className="mt-4 rounded-xl bg-gray-900/80 border border-gray-800 px-3 py-3">
-                  <p className="text-gray-500 text-[10px] leading-relaxed">
-                    Delivery charges and rider tips are handled in the existing Rider settlement.
-                    They are not added to Shop Payable here.
-                  </p>
-                </div>
               </div>
             </div>
           </div>
