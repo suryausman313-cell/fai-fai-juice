@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingBag, Clock, Phone, MapPin, ChevronRight, Tag, MessageSquare, Star, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -462,6 +462,7 @@ export default function Index() {
             alt="Welcome promotion"
             className="absolute inset-0 h-full w-full object-cover pointer-events-none select-none"
             draggable={false}
+            onError={() => setShowWelcome(false)}
           />
           <button
             type="button"
