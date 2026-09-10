@@ -2,14 +2,9 @@ import { useEffect, useRef } from 'react';
 import { client } from '@/lib/api';
 import { customerAuthApi } from '@/lib/customer-auth';
 
-/**
- * Tracks ALL visitors to the app - both guests and authenticated users.
- * PERFORMANCE: Defers first heartbeat by 5 seconds to not block initial page render.
- * Then fires every 60 seconds (reduced from 30s).
- */
+/** Keep customer presence fresh without blocking app navigation. */
 export function useCustomerHeartbeat() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,51 +25,52 @@ export function useCustomerHeartbeat() {
       const savedName = localStorage.getItem('vita_customer_name') || localStorage.getItem('customer_name') || '';
       const savedPhone = localStorage.getItem('vita_customer_phone') || localStorage.getItem('customer_phone') || '';
 
-      // 1. Always send guest heartbeat (works without auth)
-      try {
-        await client.apiCall.invoke({
-          url: '/api/v1/admin/guest-heartbeat',
-          method: 'POST',
-          data: {
-            session_id: sessionId,
-            customer_name: savedName || 'Guest',
-            customer_phone: savedPhone || '',
-          },
-        });
-      } catch {
-        // Silently fail
-      }
+      // Guest presence is best-effort and must never block customer use.
+      void client.apiCall.invoke({
+        url: '/api/v1/admin/guest-heartbeat',
+        method: 'POST',
+        data: {
+          session_id: sessionId,
+          customer_name: savedName || 'Guest',
+          customer_phone: savedPhone || '',
+        },
+      }).catch(() => undefined);
 
-      // 2. If user is authenticated, also send authenticated heartbeat
-      try {
-        const user = customerAuthApi.getSavedCustomer();
-        if (!user || cancelled) return;
-        await client.apiCall.invoke({
-          url: '/api/v1/admin/customer-heartbeat',
-          method: 'POST',
-          data: {
-            customer_name: user.name || savedName || 'Customer',
-            customer_email: '',
-            customer_phone: user.phone || savedPhone || '',
-          },
-        });
-      } catch {
-        // Not logged in - fine
-      }
+      const user = customerAuthApi.getSavedCustomer();
+      if (!user || cancelled) return;
+
+      void client.apiCall.invoke({
+        url: '/api/v1/admin/customer-heartbeat',
+        method: 'POST',
+        data: {
+          customer_name: user.name || savedName || 'Customer',
+          customer_email: user.email || user.customer_email || '',
+          customer_phone: user.phone || savedPhone || '',
+        },
+      }).catch(() => undefined);
     }
 
-    // DEFER first heartbeat by 5 seconds so it doesn't block page load
-    timeoutRef.current = setTimeout(() => {
-      if (cancelled) return;
-      sendHeartbeat();
-      // Then every 60 seconds (reduced from 30s)
-      intervalRef.current = setInterval(sendHeartbeat, 60000);
-    }, 5000);
+    const syncNow = () => {
+      if (!cancelled && document.visibilityState !== 'hidden') void sendHeartbeat();
+    };
+
+    // Send immediately so Admin does not show a just-opened customer as Offline.
+    syncNow();
+    intervalRef.current = setInterval(syncNow, 25000);
+
+    const onVisibility = () => { if (document.visibilityState === 'visible') syncNow(); };
+    window.addEventListener('focus', syncNow);
+    window.addEventListener('pageshow', syncNow);
+    window.addEventListener('customer-auth-changed', syncNow);
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       cancelled = true;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (intervalRef.current) clearInterval(intervalRef.current);
+      window.removeEventListener('focus', syncNow);
+      window.removeEventListener('pageshow', syncNow);
+      window.removeEventListener('customer-auth-changed', syncNow);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 }
