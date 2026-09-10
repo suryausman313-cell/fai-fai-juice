@@ -11,6 +11,8 @@ import { LanguageSwitcher } from '@/components/LanguagePicker';
 import NotificationBanner from '@/components/NotificationBanner';
 
 const WELCOME_SESSION_KEY = 'fai_fai_welcome_shown_running_session';
+const WELCOME_ROTATION_KEY = 'fai_fai_welcome_rotation_index_v1';
+const DEFAULT_WELCOME_AD = '/fai-fai-welcome-animation.webp';
 
 const CACHE_KEY = 'fai_home_cache_v6';
 const CACHE_TTL = 120000; // 2 minutes
@@ -44,9 +46,34 @@ function setCachedData(data: Omit<CachedData, 'timestamp'>) {
 export default function Index() {
   const navigate = useNavigate();
   const { t, isRTL, language } = useTranslation();
-  // Show once while this app/WebView session is running. Route changes, including
-  // Menu -> Home, must not replay it. A fresh app process/WebView gets a new
-  // sessionStorage session and can show it once again.
+  // Initialize from cache for instant display. Active offer banner images are also
+  // eligible welcome ads, so Admin can maintain multiple promo creatives without
+  // adding a new database table or changing the order/payment flow.
+  const cached = getCachedData();
+
+  const cachedWelcomeAds = useMemo(() => {
+    const offerImages = (cached?.offers || [])
+      .map(offer => String((offer as any)?.banner_image_url || '').trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    // One built-in welcome creative + up to five active Offer banners = max 6.
+    return Array.from(new Set([DEFAULT_WELCOME_AD, ...offerImages]));
+  }, [cached]);
+
+  // Show exactly once while this app/WebView session is running. Menu -> Home
+  // must not replay it. A fully fresh app/WebView session shows the next ad.
+  const [welcomeAd, setWelcomeAd] = useState(() => {
+    try {
+      const available = cachedWelcomeAds.length > 0 ? cachedWelcomeAds : [DEFAULT_WELCOME_AD];
+      const previous = Number(localStorage.getItem(WELCOME_ROTATION_KEY) || '-1');
+      const next = Number.isFinite(previous) ? (previous + 1) % available.length : 0;
+      localStorage.setItem(WELCOME_ROTATION_KEY, String(next));
+      return available[next] || DEFAULT_WELCOME_AD;
+    } catch {
+      return DEFAULT_WELCOME_AD;
+    }
+  });
+
   const [showWelcome, setShowWelcome] = useState(() => {
     try {
       if (sessionStorage.getItem(WELCOME_SESSION_KEY) === '1') return false;
@@ -62,9 +89,6 @@ export default function Index() {
     const timer = window.setTimeout(() => setShowWelcome(false), 22000);
     return () => window.clearTimeout(timer);
   }, [showWelcome]);
-
-  // Initialize from cache for instant display
-  const cached = getCachedData();
   const [settings, setSettings] = useState<RestaurantSettings | null>(cached?.settings || null);
   const [featuredItems, setFeaturedItems] = useState<MenuItem[]>(cached?.featuredItems || []);
   const [categories, setCategories] = useState<Category[]>(cached?.categories || []);
@@ -434,8 +458,8 @@ export default function Index() {
       {showWelcome && (
         <div className="fixed inset-0 z-[2147483647] bg-black" role="dialog" aria-label="Welcome">
           <img
-            src="/fai-fai-welcome-animation.webp"
-            alt="Welcome"
+            src={welcomeAd}
+            alt="Welcome promotion"
             className="absolute inset-0 h-full w-full object-cover pointer-events-none select-none"
             draggable={false}
           />
