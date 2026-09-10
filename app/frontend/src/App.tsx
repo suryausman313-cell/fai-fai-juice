@@ -44,6 +44,7 @@ const Contact = lazy(() => import('./pages/Contact'));
 const Deals = lazy(() => import('./pages/Deals'));
 const Feedback = lazy(() => import('./pages/Feedback'));
 const Reviews = lazy(() => import('./pages/Reviews'));
+const Rewards = lazy(() => import('./pages/Rewards'));
 const Support = lazy(() => import('./pages/Support'));
 
 const CustomerAuth = lazy(
@@ -180,6 +181,10 @@ const AdminRiders = lazy(
   () => import('./pages/admin/AdminRiders')
 );
 
+const AdminRewardsSettings = lazy(
+  () => import('./pages/admin/AdminRewardsSettings')
+);
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -259,6 +264,15 @@ const AppRoutes = () => (
         element={
           <ProtectedCustomerRoute>
             <OrderConfirmation />
+          </ProtectedCustomerRoute>
+        }
+      />
+
+      <Route
+        path="/rewards"
+        element={
+          <ProtectedCustomerRoute>
+            <Rewards />
           </ProtectedCustomerRoute>
         }
       />
@@ -405,6 +419,11 @@ const AppRoutes = () => (
       <Route
         path="/admin/settings/receipt"
         element={<AdminReceiptSettings />}
+      />
+
+      <Route
+        path="/admin/settings/rewards"
+        element={<AdminRewardsSettings />}
       />
 
       <Route
