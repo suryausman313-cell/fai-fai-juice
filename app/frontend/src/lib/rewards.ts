@@ -1,4 +1,5 @@
 import { client, CartItem } from '@/lib/api';
+import { getAPIBaseURL } from '@/lib/config';
 
 export type RewardTier = 'normal' | 'golden';
 export type RewardType = 'percent' | 'fixed' | 'free_ice_cream' | 'golden_free_item';
@@ -35,21 +36,44 @@ export interface AdminRewardSettings {
   enabled: boolean;
 }
 
+async function adminRewardSettingsRequest(
+  method: 'GET' | 'PUT',
+  enabled?: boolean,
+): Promise<AdminRewardSettings> {
+  const token = localStorage.getItem('fai_fai_admin_token') || '';
+  if (!token) throw new Error('Admin login required');
+
+  const response = await fetch(
+    `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/fai-fai-admin-control/reward-settings`,
+    {
+      method,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(method === 'PUT' ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(method === 'PUT'
+        ? { body: JSON.stringify({ enabled: Boolean(enabled) }) }
+        : {}),
+    },
+  );
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      payload?.detail || payload?.message || `Request failed (${response.status})`,
+    );
+  }
+
+  return { enabled: payload?.enabled !== false };
+}
+
 export async function getAdminRewardSettings(): Promise<AdminRewardSettings> {
-  const response = await client.apiCall.invoke({
-    url: '/api/v1/rewards/admin/settings',
-    method: 'GET',
-  });
-  return { enabled: response?.data?.enabled !== false };
+  return adminRewardSettingsRequest('GET');
 }
 
 export async function updateAdminRewardSettings(enabled: boolean): Promise<AdminRewardSettings> {
-  const response = await client.apiCall.invoke({
-    url: '/api/v1/rewards/admin/settings',
-    method: 'PUT',
-    data: { enabled: Boolean(enabled) },
-  });
-  return { enabled: response?.data?.enabled !== false };
+  return adminRewardSettingsRequest('PUT', enabled);
 }
 
 export async function getRewardsStatus(): Promise<{ enabled: boolean }> {
