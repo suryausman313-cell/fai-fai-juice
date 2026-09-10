@@ -432,11 +432,13 @@ export default function AdminFinance() {
 
   // Overall Admin finance/cash only. Detailed Rider finance is in AdminRiders.
   const cards = [
-    ['Food Sale (Period)', totals.shop_food_sale, 'text-emerald-300'],
+    ['Food Sale', totals.shop_food_sale, 'text-emerald-300'],
     ['Cash Sales Completed', totals.cash_collected, 'text-green-300'],
     ['Admin Cash Received', cashControl.net_received, 'text-emerald-300'],
     ['Cash Refunds', cashControl.cash_refunds, 'text-red-300'],
-    ['Online Payment (Period)', totals.card_collected, 'text-blue-300'],
+    ['Online Payment Gross', totals.card_collected, 'text-blue-300'],
+    ['Ziina Fee', totals.ziina_fee, 'text-red-300'],
+    ['Online Net Received', totals.online_net_received, 'text-cyan-300'],
     ['Pickup Cash With Kitchen', pickupCash.remaining_to_submit, 'text-orange-300'],
     ['Pickup Cash Waiting Admin', pickupCash.awaiting_approval, 'text-yellow-300'],
     ['Pickup Cash Approved', pickupCash.approved_cash, 'text-green-300'],
