@@ -132,6 +132,10 @@ const AdminSecuritySettings = lazy(
   () => import('./pages/admin/AdminSecuritySettings')
 );
 
+const AdminRewardsSettings = lazy(
+  () => import('./pages/admin/AdminRewardsSettings')
+);
+
 const AdminDataReset = lazy(
   () => import('./pages/admin/AdminDataReset')
 );
@@ -179,10 +183,6 @@ const AdminAccounts = lazy(
 
 const AdminRiders = lazy(
   () => import('./pages/admin/AdminRiders')
-);
-
-const AdminRewardsSettings = lazy(
-  () => import('./pages/admin/AdminRewardsSettings')
 );
 
 const queryClient = new QueryClient({
