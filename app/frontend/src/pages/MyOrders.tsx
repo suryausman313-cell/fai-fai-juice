@@ -650,7 +650,7 @@ export default function MyOrders() {
       toast.error(
         String(
           data.message ||
-          'Payment is still active. Retry payment or choose Cash.'
+          'Could not close the pending online order. Please try again.'
         )
       );
     } catch (e: any) {
@@ -909,7 +909,7 @@ export default function MyOrders() {
                               <Button
                                 onClick={() => {
                                   localStorage.setItem('vita_pending_ziina_order_id', String(order.id));
-                                  navigate('/checkout');
+                                  navigate('/checkout', { state: { replacePendingPaymentOrderId: order.id, forcePaymentMethod: 'cash' } });
                                 }}
                                 size="sm"
                                 variant="outline"

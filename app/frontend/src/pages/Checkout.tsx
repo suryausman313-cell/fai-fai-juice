@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,7 +16,7 @@ import { isPromoOfferCurrentlyActive } from '@/lib/discounts';
 import { getGuestSessionId } from '@/lib/guest-session';
 import { CustomerReward, getMyRewards, rewardDiscountForCart } from '@/lib/rewards';
 import { useCustomerAuth } from '@/contexts/CustomerAuthContext';
-import { DeviceLocationError, getCurrentDeviceLocation } from '@/lib/device-location';
+import { DeviceLocationError, getCurrentDeviceLocation, openDeviceLocationSettings } from '@/lib/device-location';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -193,8 +193,9 @@ const CHECKOUT_EN: Record<string, string> = {
   'checkout.pin_moved': 'Location selected',
   'checkout.location_failed': 'Could not get your location. Select it on the map.',
   'checkout.location_access_unavailable': 'Location access unavailable',
-  'checkout.location_access_help': 'Select your delivery location on the map.',
+  'checkout.location_access_help': 'Location access is off. Open Settings and choose While Using the App, or select your location on the map.',
   'checkout.try_again': 'Try Again',
+  'checkout.open_settings': 'Open Settings',
   'checkout.still_no_access': 'Select your location manually on the map.',
   'checkout.getting_your_location': 'Getting your location...',
   'checkout.delivery_fee': 'Delivery Fee',
@@ -410,6 +411,7 @@ const CHECKOUT_AR: Record<string, string> = {
 export default function Checkout() {
   const { selectedBranch } = useBranch();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
   const { t: baseT, language } = useTranslation();
   const humanizeKey = (key: string) =>
     key.split('.').pop()?.replaceAll('_', ' ').replace(/\w/g, (c) => c.toUpperCase()) || '';
@@ -429,6 +431,11 @@ export default function Checkout() {
   const [carInfo, setCarInfo] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
+
+  useEffect(() => {
+    const forced = String((routeLocation.state as any)?.forcePaymentMethod || '').toLowerCase();
+    if (forced === 'cash') setPaymentMethod('cash');
+  }, [routeLocation.state]);
   const [ziinaEnabled, setZiinaEnabled] = useState(false);
   const [orderType, setOrderType] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -1507,8 +1514,11 @@ export default function Checkout() {
       // Do not rely only on localStorage: a fresh install can lose the saved id
       // while the pending order still exists on the customer's backend account.
       const pendingOrderIds = new Set<number>();
+      const routePendingOrderId =
+        Number((routeLocation.state as any)?.replacePendingPaymentOrderId || 0) || 0;
       const savedPendingOrderId =
         Number(localStorage.getItem('vita_pending_ziina_order_id') || 0) || 0;
+      if (routePendingOrderId > 0) pendingOrderIds.add(routePendingOrderId);
       if (savedPendingOrderId > 0) pendingOrderIds.add(savedPendingOrderId);
 
       try {
@@ -1618,7 +1628,7 @@ export default function Checkout() {
           customer_lng: orderType === 'delivery' ? customerLng : null,
           customer_address: orderType === 'delivery' ? deliveryAddress.trim() : '',
           branch_id: selectedBranch?.id || null,
-          replace_pending_payment_order_id: null,
+          replace_pending_payment_order_id: paymentMethod === 'ziina' ? null : (routePendingOrderId || savedPendingOrderId || null),
         },
       );
 
@@ -1903,20 +1913,36 @@ export default function Checkout() {
                         <p className="text-sm text-yellow-200">
                           {t('checkout.location_access_help')}
                         </p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => {
-                            void moveToCurrentLocation({
-                              timeout: 10000,
-                              maximumAge: 0,
-                              showSuccess: true,
-                            });
-                          }}
-                          className="shrink-0 bg-yellow-600 text-white hover:bg-yellow-700"
-                        >
-                          {t('checkout.try_again')}
-                        </Button>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const opened = openDeviceLocationSettings();
+                              if (!opened) {
+                                toast.info('Open Settings and allow location for Fai Fai Juice.');
+                              }
+                            }}
+                            className="bg-yellow-600 text-white hover:bg-yellow-700"
+                          >
+                            {t('checkout.open_settings')}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              void moveToCurrentLocation({
+                                timeout: 10000,
+                                maximumAge: 0,
+                                showSuccess: true,
+                              });
+                            }}
+                            className="border-yellow-700/50 text-yellow-200 hover:bg-yellow-900/20"
+                          >
+                            {t('checkout.try_again')}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
