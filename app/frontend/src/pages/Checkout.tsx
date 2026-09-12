@@ -1503,6 +1503,84 @@ export default function Checkout() {
       noteParts.push(`Order Type: ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}`);
       const fullNotes = noteParts.filter(Boolean).join(' | ');
 
+      // Clear ANY old Ziina payment-pending order before placing a new order.
+      // Do not rely only on localStorage: a fresh install can lose the saved id
+      // while the pending order still exists on the customer's backend account.
+      const pendingOrderIds = new Set<number>();
+      const savedPendingOrderId =
+        Number(localStorage.getItem('vita_pending_ziina_order_id') || 0) || 0;
+      if (savedPendingOrderId > 0) pendingOrderIds.add(savedPendingOrderId);
+
+      try {
+        const myOrders = await backendRequest(
+          '/api/v1/orders/my-orders',
+          'GET',
+          undefined,
+          { session_id: getGuestSessionId() },
+        );
+        for (const order of myOrders?.data?.items || []) {
+          const status = String(order?.status || '').toLowerCase();
+          const method = String(order?.payment_method || '').toLowerCase();
+          if (status === 'payment_pending' && (method.includes('ziina') || method.includes('online'))) {
+            const id = Number(order?.id || 0);
+            if (id > 0) pendingOrderIds.add(id);
+          }
+        }
+      } catch {
+        // If order history cannot be loaded, still try the locally saved id.
+      }
+
+      for (const pendingOrderId of pendingOrderIds) {
+        try {
+          const cleanup = await backendRequest(
+            '/api/v1/ziina/cancel-payment-order',
+            'POST',
+            { order_id: pendingOrderId },
+          );
+
+          const cleanupStatus = String(cleanup?.data?.status || '').toLowerCase();
+          const cleanupPaid = cleanup?.data?.paid === true;
+
+          if (cleanupPaid || cleanupStatus === 'new') {
+            localStorage.removeItem('vita_pending_ziina_order_id');
+            toast.info('Your previous online payment was already completed. Please check My Orders.');
+            navigate('/my-orders');
+            return;
+          }
+
+          if (cleanupStatus === 'cancelled' || cleanup?.data?.success === true) {
+            if (pendingOrderId === savedPendingOrderId) {
+              localStorage.removeItem('vita_pending_ziina_order_id');
+            }
+            continue;
+          }
+
+          if (cleanupStatus === 'payment_pending') {
+            localStorage.setItem('vita_pending_ziina_order_id', String(pendingOrderId));
+            toast.error('Previous online payment is still active. Please retry or cancel it from My Orders.');
+            navigate('/my-orders');
+            return;
+          }
+        } catch (cleanupError: any) {
+          const cleanupMessage = String(
+            cleanupError?.data?.detail ||
+            cleanupError?.response?.data?.detail ||
+            cleanupError?.message ||
+            '',
+          );
+
+          if (/not found|does not exist|404/i.test(cleanupMessage)) {
+            if (pendingOrderId === savedPendingOrderId) {
+              localStorage.removeItem('vita_pending_ziina_order_id');
+            }
+            continue;
+          }
+
+          toast.error(cleanupMessage || 'Could not clear the previous online payment.');
+          return;
+        }
+      }
+
       const response = await backendRequest(
         '/api/v1/orders/place',
         'POST',
@@ -1540,10 +1618,7 @@ export default function Checkout() {
           customer_lng: orderType === 'delivery' ? customerLng : null,
           customer_address: orderType === 'delivery' ? deliveryAddress.trim() : '',
           branch_id: selectedBranch?.id || null,
-          replace_pending_payment_order_id:
-            paymentMethod === 'ziina'
-              ? null
-              : Number(localStorage.getItem('vita_pending_ziina_order_id') || 0) || null,
+          replace_pending_payment_order_id: null,
         },
       );
 
