@@ -609,15 +609,12 @@ async def place_order(
                     ).limit(1)
                 )
                 pending_ziina = explicit_pending.scalar_one_or_none()
-                if pending_ziina is not None and (
-                    pending_ziina.items_json != canonical_items_json
-                    or abs(float(pending_ziina.total_amount or 0) - server_total) > 0.01
-                    or str(pending_ziina.order_type or "pickup").lower().strip() != normalized_order_type
-                ):
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Your cart changed after starting online payment. Please finish or retry that payment from My Orders before placing a different order.",
-                    )
+                # A changed cart must not permanently lock the customer out of
+                # Cash/Card. The old hosted Ziina attempt belongs to this same
+                # customer, so it is resolved below with
+                # prepare_pending_order_for_offline_switch(). Active provider
+                # intents are marked abandoned and auto-refunded if they ever
+                # complete later.
 
             if pending_ziina is None:
                 pending_query = await db.execute(
