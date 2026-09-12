@@ -66,5 +66,7 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Fai Fai Juice uses your location to select the nearest branch and calculate delivery availability and charges.</string>
 </dict>
 </plist>
