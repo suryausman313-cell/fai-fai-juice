@@ -134,3 +134,20 @@ export async function getCurrentDeviceLocation(options?: {
   // Keep Android/Web behaviour unchanged.
   return browserLocation(timeout, maximumAge);
 }
+
+export function openDeviceLocationSettings(): boolean {
+  const isIOSNative =
+    Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
+
+  if (!isIOSNative) return false;
+
+  try {
+    // UIApplication.openSettingsURLString resolves to app-settings:. Capacitor's
+    // WKWebView hands this external scheme to iOS, which opens this app's
+    // Settings page where Location can be changed to While Using the App.
+    window.location.assign('app-settings:');
+    return true;
+  } catch {
+    return false;
+  }
+}
