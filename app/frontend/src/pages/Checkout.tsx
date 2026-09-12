@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { MapPin, Car, Tag, Navigation, CheckCircle, X } from 'lucide-react';
 import CustomerLayout from '@/components/CustomerLayout';
 import { useBranch } from '@/contexts/BranchContext';
-import { client, CartItem, Offer, localizedMenuText } from '@/lib/api';
+import { backendRequest, client, CartItem, Offer, localizedMenuText } from '@/lib/api';
 import { getCart, getCartTotal, getCartOriginalTotal, getCartItemDiscountTotal, clearCart } from '@/lib/cart-store';
 import { useTranslation } from '@/lib/i18n';
 import { isPromoOfferCurrentlyActive } from '@/lib/discounts';
@@ -18,6 +18,7 @@ import { getGuestSessionId } from '@/lib/guest-session';
 import { getAPIBaseURL } from '@/lib/config';
 import { CustomerReward, getMyRewards, rewardDiscountForCart } from '@/lib/rewards';
 import { useCustomerAuth } from '@/contexts/CustomerAuthContext';
+import { DeviceLocationError, getCurrentDeviceLocation } from '@/lib/device-location';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -569,8 +570,7 @@ export default function Checkout() {
 
   // Read only the public Ziina ON/OFF state. The secret API key stays on Render.
   useEffect(() => {
-    axios
-      .get(`${getAPIBaseURL().replace(/\/$/, '')}/api/v1/ziina/config`, { timeout: 10000 })
+    backendRequest('/api/v1/ziina/config', 'GET')
       .then((response) => setZiinaEnabled(response?.data?.enabled === true))
       .catch(() => setZiinaEnabled(false));
   }, []);
@@ -583,13 +583,6 @@ export default function Checkout() {
     if (!ziinaResult || !orderId) return;
 
     let disposed = false;
-    const apiBase = getAPIBaseURL().replace(/\/$/, '');
-    const token = localStorage.getItem('vita_customer_token') || '';
-    const authConfig = {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      timeout: 20000,
-    };
-
     const finishZiinaReturn = async () => {
       if (ziinaResult === 'success') {
         try {
@@ -597,10 +590,10 @@ export default function Checkout() {
 
           // Ziina may redirect a fraction of a second before its final status is visible.
           for (let attempt = 0; attempt < 10; attempt += 1) {
-            const verification = await axios.post(
-              `${apiBase}/api/v1/ziina/verify-payment`,
+            const verification = await backendRequest(
+              '/api/v1/ziina/verify-payment',
+              'POST',
               { order_id: orderId },
-              authConfig,
             );
 
             finalStatus = String(verification?.data?.status || '').toLowerCase();
@@ -656,10 +649,10 @@ export default function Checkout() {
       // Cash submission can safely supersede it after server-side verification.
       let cleanupStatus = '';
       try {
-        const cleanup = await axios.post(
-          `${apiBase}/api/v1/ziina/cancel-payment-order`,
+        const cleanup = await backendRequest(
+          '/api/v1/ziina/cancel-payment-order',
+          'POST',
           { order_id: orderId },
-          authConfig,
         );
         cleanupStatus = String(cleanup?.data?.status || '').toLowerCase();
       } catch {
@@ -830,6 +823,47 @@ export default function Checkout() {
     setSavedDeliveryLocations(next);
   }
 
+  async function moveToCurrentLocation(options?: {
+    timeout?: number;
+    maximumAge?: number;
+    showSuccess?: boolean;
+  }): Promise<boolean> {
+    setGettingLocation(true);
+    try {
+      const { latitude, longitude } = await getCurrentDeviceLocation({
+        timeout: options?.timeout ?? 15000,
+        maximumAge: options?.maximumAge ?? 0,
+      });
+
+      if (markerRef.current) {
+        markerRef.current.setLatLng([latitude, longitude]);
+      }
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView([latitude, longitude], 15);
+      }
+
+      await handleLocationSelected(latitude, longitude);
+      setLocationPermissionDenied(false);
+      if (options?.showSuccess) toast.success(t('checkout.pin_moved'));
+      return true;
+    } catch (error) {
+      const denied =
+        error instanceof DeviceLocationError &&
+        error.code === 'permission-denied';
+      setLocationPermissionDenied(denied);
+      if (options?.showSuccess) {
+        toast.warning(
+          denied
+            ? t('checkout.location_denied')
+            : t('checkout.location_failed'),
+        );
+      }
+      return false;
+    } finally {
+      setGettingLocation(false);
+    }
+  }
+
   function initMap() {
     if (!mapRef.current) return;
     const map = L.map(mapRef.current).setView([restaurantLat, restaurantLng], 13);
@@ -865,31 +899,12 @@ export default function Checkout() {
       handleLocationSelected(e.latlng.lat, e.latlng.lng);
     });
 
-    // Auto-request user's current location when map loads
-    if (navigator.geolocation) {
-      setGettingLocation(true);
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          marker.setLatLng([latitude, longitude]);
-          map.setView([latitude, longitude], 15);
-          handleLocationSelected(latitude, longitude);
-          setLocationPermissionDenied(false);
-          setGettingLocation(false);
-        },
-        (err) => {
-          setGettingLocation(false);
-          if (err.code === err.PERMISSION_DENIED) {
-            setLocationPermissionDenied(true);
-          }
-          // User can still drag pin or tap map manually
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
-
     mapInstanceRef.current = map;
     markerRef.current = marker;
+
+    // Auto-request current location. iOS uses the native Capacitor location
+    // plugin; Android/Web keep the existing browser geolocation behavior.
+    void moveToCurrentLocation({ timeout: 10000, maximumAge: 120000 });
   }
 
   async function handleLocationSelected(lat: number, lng: number) {
@@ -1566,15 +1581,10 @@ export default function Checkout() {
         localStorage.setItem('vita_customer_phone', phone.trim());
 
         try {
-          const payment = await axios.post(
-            `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/ziina/create-payment`,
+          const payment = await backendRequest(
+            '/api/v1/ziina/create-payment',
+            'POST',
             { order_id: orderId },
-            {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem('vita_customer_token') || ''}`,
-              },
-              timeout: 20000,
-            },
           );
 
           if (payment?.data?.already_paid === true) {
@@ -1596,15 +1606,10 @@ export default function Checkout() {
           return;
         } catch (paymentError) {
           try {
-            const cleanup = await axios.post(
-              `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/ziina/cancel-payment-order`,
+            const cleanup = await backendRequest(
+              '/api/v1/ziina/cancel-payment-order',
+              'POST',
               { order_id: orderId },
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem('vita_customer_token') || ''}`,
-                },
-                timeout: 10000,
-              },
             );
             const cleanupStatus = String(cleanup?.data?.status || '').toLowerCase();
             if (cleanupStatus && cleanupStatus !== 'payment_pending') {
@@ -1807,36 +1812,11 @@ export default function Checkout() {
                       size="sm"
                       disabled={gettingLocation}
                       onClick={() => {
-                        if (!navigator.geolocation) {
-                          toast.error(t('checkout.location_unsupported'));
-                          return;
-                        }
-                        setGettingLocation(true);
-                        navigator.geolocation.getCurrentPosition(
-                          (pos) => {
-                            const { latitude, longitude } = pos.coords;
-                            if (markerRef.current) {
-                              markerRef.current.setLatLng([latitude, longitude]);
-                            }
-                            if (mapInstanceRef.current) {
-                              mapInstanceRef.current.setView([latitude, longitude], 15);
-                            }
-                            handleLocationSelected(latitude, longitude);
-                            setLocationPermissionDenied(false);
-                            setGettingLocation(false);
-                            toast.success(t('checkout.pin_moved'));
-                          },
-                          (err) => {
-                            setGettingLocation(false);
-                            if (err.code === err.PERMISSION_DENIED) {
-                              setLocationPermissionDenied(true);
-                              toast.warning(t('checkout.location_denied'));
-                            } else {
-                              toast.warning(t('checkout.location_failed'));
-                            }
-                          },
-                          { enableHighAccuracy: true, timeout: 15000 },
-                        );
+                        void moveToCurrentLocation({
+                          timeout: 15000,
+                          maximumAge: 0,
+                          showSuccess: true,
+                        });
                       }}
                       className="ml-auto rounded-xl bg-blue-600 px-4 text-white hover:bg-blue-700 disabled:opacity-50"
                     >
@@ -1863,28 +1843,11 @@ export default function Checkout() {
                           type="button"
                           size="sm"
                           onClick={() => {
-                            if (!navigator.geolocation) return;
-                            setGettingLocation(true);
-                            navigator.geolocation.getCurrentPosition(
-                              (pos) => {
-                                const { latitude, longitude } = pos.coords;
-                                if (markerRef.current) {
-                                  markerRef.current.setLatLng([latitude, longitude]);
-                                }
-                                if (mapInstanceRef.current) {
-                                  mapInstanceRef.current.setView([latitude, longitude], 15);
-                                }
-                                handleLocationSelected(latitude, longitude);
-                                setLocationPermissionDenied(false);
-                                setGettingLocation(false);
-                                toast.success(t('checkout.pin_moved'));
-                              },
-                              () => {
-                                setGettingLocation(false);
-                                toast.warning(t('checkout.still_no_access'));
-                              },
-                              { enableHighAccuracy: true, timeout: 10000 },
-                            );
+                            void moveToCurrentLocation({
+                              timeout: 10000,
+                              maximumAge: 0,
+                              showSuccess: true,
+                            });
                           }}
                           className="shrink-0 bg-yellow-600 text-white hover:bg-yellow-700"
                         >

@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, XCircle, ChefHat, Package, RefreshCw, Store, MessageSquare, Bike, Navigation, AlertTriangle, X, ShoppingCart, Bell, BellOff, EyeOff } from 'lucide-react';
@@ -7,11 +6,10 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import CustomerLayout from '@/components/CustomerLayout';
-import { client, Order, CartItem } from '@/lib/api';
+import { backendRequest, client, Order, CartItem } from '@/lib/api';
 import { useTranslation } from '@/lib/i18n';
 import { getCart, saveCart } from '@/lib/cart-store';
 import { getGuestSessionId } from '@/lib/guest-session';
-import { getAPIBaseURL } from '@/lib/config';
 import ReadyTimeCountdown from '@/components/ReadyTimeCountdown';
 import {
   enableCustomerPush,
@@ -684,15 +682,10 @@ export default function MyOrders() {
 
   async function retryOnlinePayment(orderId: number) {
     try {
-      const res = await axios.post(
-        `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/ziina/create-payment`,
+      const res = await backendRequest(
+        '/api/v1/ziina/create-payment',
+        'POST',
         { order_id: orderId },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('vita_customer_token') || ''}`,
-          },
-          timeout: 20000,
-        },
       );
       if (res?.data?.already_paid === true) {
         localStorage.removeItem('vita_pending_ziina_order_id');
