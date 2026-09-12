@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +14,6 @@ import { getCart, getCartTotal, getCartOriginalTotal, getCartItemDiscountTotal, 
 import { useTranslation } from '@/lib/i18n';
 import { isPromoOfferCurrentlyActive } from '@/lib/discounts';
 import { getGuestSessionId } from '@/lib/guest-session';
-import { getAPIBaseURL } from '@/lib/config';
 import { CustomerReward, getMyRewards, rewardDiscountForCart } from '@/lib/rewards';
 import { useCustomerAuth } from '@/contexts/CustomerAuthContext';
 import { DeviceLocationError, getCurrentDeviceLocation } from '@/lib/device-location';
@@ -1125,15 +1123,11 @@ export default function Checkout() {
         // Get user's previous orders for usage validation
         let previousOrders: any[] = [];
         try {
-          const ordersRes = await axios.get(
-            `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/orders/my-orders`,
-            {
-              params: { session_id: getGuestSessionId() },
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem('vita_customer_token') || ''}`,
-              },
-              timeout: 15000,
-            },
+          const ordersRes = await backendRequest(
+            '/api/v1/orders/my-orders',
+            'GET',
+            undefined,
+            { session_id: getGuestSessionId() },
           );
           previousOrders = ordersRes?.data?.items || [];
         } catch {
@@ -1509,8 +1503,9 @@ export default function Checkout() {
       noteParts.push(`Order Type: ${orderType === 'delivery' ? 'Delivery' : 'Pickup'}`);
       const fullNotes = noteParts.filter(Boolean).join(' | ');
 
-      const response = await axios.post(
-        `${getAPIBaseURL().replace(/\/$/, '')}/api/v1/orders/place`,
+      const response = await backendRequest(
+        '/api/v1/orders/place',
+        'POST',
         {
           session_id: getGuestSessionId(),
           customer_name: name.trim(),
@@ -1549,12 +1544,6 @@ export default function Checkout() {
             paymentMethod === 'ziina'
               ? null
               : Number(localStorage.getItem('vita_pending_ziina_order_id') || 0) || null,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('vita_customer_token') || ''}`,
-          },
-          timeout: 30000,
         },
       );
 
