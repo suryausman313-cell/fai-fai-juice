@@ -56,37 +56,45 @@ export async function getCurrentDeviceLocation(options?: {
   const timeout = options?.timeout ?? 15000;
   const maximumAge = options?.maximumAge ?? 0;
 
-  // Keep Android/Web exactly as they are today. Only iOS uses the native
-  // Capacitor plugin so WKWebView permission/CORS differences do not force
-  // customers to select their location manually.
   const isIOSNative =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 
+  // Keep existing Android/Web behaviour unchanged.
   if (!isIOSNative) {
     return browserLocation(timeout, maximumAge);
   }
 
-  const permission = await Geolocation.requestPermissions();
-  if (
-    permission.location !== 'granted' &&
-    permission.coarseLocation !== 'granted'
-  ) {
-    throw new DeviceLocationError('permission-denied', 'Location permission was denied.');
-  }
-
   try {
+    // On a fresh install this causes iOS to show the native
+    // “Allow While Using App” permission dialog.
+    let permission = await Geolocation.checkPermissions();
+
+    if (permission.location !== 'granted') {
+      permission = await Geolocation.requestPermissions({ permissions: ['location'] });
+    }
+
+    if (permission.location !== 'granted') {
+      throw new DeviceLocationError(
+        'permission-denied',
+        'Location permission was denied.',
+      );
+    }
+
     const position = await Geolocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeout,
       maximumAge,
     });
+
     return {
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
     };
   } catch (error: any) {
+    if (error instanceof DeviceLocationError) throw error;
+
     const message = String(error?.message || 'Current location is unavailable.');
-    if (/denied|permission/i.test(message)) {
+    if (/denied|permission|not authorized/i.test(message)) {
       throw new DeviceLocationError('permission-denied', message);
     }
     if (/timeout/i.test(message)) {
