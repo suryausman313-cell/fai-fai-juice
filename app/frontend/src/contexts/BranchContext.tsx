@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { backendRequest } from '@/lib/api';
+import { getCurrentDeviceLocation } from '@/lib/device-location';
 
 export type Branch = {
   id: number;
@@ -76,15 +77,11 @@ export function BranchProvider({ children }: { children: ReactNode }) {
 
   const useNearestBranch = useCallback(() => {
     if (!branches.length) return;
-    if (!navigator.geolocation) {
-      setNeedsChoice(branches.length > 1);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => selectNearestFromPosition(branches, position.coords.latitude, position.coords.longitude),
-      () => setNeedsChoice(branches.length > 1),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 },
-    );
+    void getCurrentDeviceLocation({ timeout: 10000, maximumAge: 120000 })
+      .then(({ latitude, longitude }) =>
+        selectNearestFromPosition(branches, latitude, longitude),
+      )
+      .catch(() => setNeedsChoice(branches.length > 1));
   }, [branches, selectNearestFromPosition]);
 
   useEffect(() => {
@@ -128,20 +125,15 @@ export function BranchProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (position) => selectNearestFromPosition(list, position.coords.latitude, position.coords.longitude),
-            () => {
-              const fallback = saved || list.find((item: Branch) => item.is_default) || list[0];
-              setSelectedBranch(fallback);
-              setNeedsChoice(true);
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 },
-          );
-        } else {
-          setSelectedBranch(saved || list.find((item: Branch) => item.is_default) || list[0]);
-          setNeedsChoice(true);
-        }
+        void getCurrentDeviceLocation({ timeout: 10000, maximumAge: 120000 })
+          .then(({ latitude, longitude }) =>
+            selectNearestFromPosition(list, latitude, longitude),
+          )
+          .catch(() => {
+            const fallback = saved || list.find((item: Branch) => item.is_default) || list[0];
+            setSelectedBranch(fallback);
+            setNeedsChoice(true);
+          });
       } catch {
         // Safe fallback: if branch API is temporarily unavailable, the existing
         // single-shop customer app continues exactly as before.
